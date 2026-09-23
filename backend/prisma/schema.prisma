@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PASSENGER
+  DRIVER
+}
+
+enum VehicleStatus {
+  OFFLINE
+  ONLINE
+}
+
+enum PoolStatus {
+  OPEN
+  FULL
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum RideStatus {
+  REQUESTED
+  MATCHED
+  DRIVER_ARRIVED
+  STARTED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  TESLAPAY
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  phone        String   @unique
+  email        String   @unique
+  passwordHash String
+  role         Role
+  walletPoysha Int      @default(0) // TeslaPay balance, integer poysha
+  createdAt    DateTime @default(now())
+
+  vehicle      Vehicle?
+  rideRequests RideRequest[]
+}
+
+model Vehicle {
+  id        String        @id @default(uuid())
+  driver    User          @relation(fields: [driverId], references: [id])
+  driverId  String        @unique
+  label     String // e.g. "Bullet"
+  capacity  Int
+  status    VehicleStatus @default(OFFLINE)
+  createdAt DateTime      @default(now())
+
+  pools Pool[]
+
+  @@check(capacity > 0, name: "capacity_positive")
+}
+
+model Zone {
+  id   String @id @default(uuid())
+  name String @unique
+  lat  Float
+  lng  Float
+}
+
+model Pool {
+  id             String     @id @default(uuid())
+  vehicle        Vehicle    @relation(fields: [vehicleId], references: [id])
+  vehicleId      String
+  status         PoolStatus @default(OPEN)
+  seatsOccupied  Int        @default(0)
+  pickupZone     String
+  createdAt      DateTime   @default(now())
+
+  rideRequests RideRequest[]
+
+  @@check(seatsOccupied >= 0, name: "seats_non_negative")
+}
+
+model RideRequest {
+  id               String     @id @default(uuid())
+  passenger        User       @relation(fields: [passengerId], references: [id])
+  passengerId      String
+  pool             Pool?      @relation(fields: [poolId], references: [id])
+  poolId           String?
+  pickupZone       String
+  destinationZone  String
+  seatsRequested   Int        @default(1)
+  status           RideStatus @default(REQUESTED)
+  requestedAt      DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  fare      Fare?
+  statusLog RideStatusLog[]
+}
+
+model Fare {
+  id                     String        @id @default(uuid())
+  rideRequest            RideRequest   @relation(fields: [rideRequestId], references: [id])
+  rideRequestId          String        @unique
+  baseFarePoysha         Int
+  distanceChargePoysha   Int
+  poolDiscountPoysha     Int
+  totalFarePoysha        Int
+  paymentMethod          PaymentMethod @default(CASH)
+  paymentStatus          PaymentStatus @default(PENDING)
+}
+
+model RideStatusLog {
+  id            String      @id @default(uuid())
+  rideRequest   RideRequest @relation(fields: [rideRequestId], references: [id])
+  rideRequestId String
+  fromStatus    String
+  toStatus      String
+  changedAt     DateTime    @default(now())
+}
+
+// Fixed distance lookup between zone pairs, standing in for a real routing API
+model ZoneDistance {
+  id           String @id @default(uuid())
+  fromZone     String
+  toZone       String
+  distanceKm   Float
+
+  @@unique([fromZone, toZone])
+}
